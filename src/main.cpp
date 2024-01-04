@@ -1,123 +1,135 @@
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
+#include <Ticker.h>
 #include "helper/Credentials.h"
 #include <string.h>
+#include <EthernetClient.h>
+//#include "helper/Mqtt.h"
+#include "helper/Parser.h"
+#include <WString.h>
 
+#define TOPIC_LED (char*) "led"
+#define TOPIC_LOG (char*) "log"
 
-#define TOPIC_LED "led"
-#define TOPIC_LOG "log"
+WiFiClient espClient;
+PubSubClient client;
+bool reseived_toggle = false;
+
+bool boMsgReseived = false;
+String strPayload;
+Parser *parser = new Parser();
 
 
 // put function declarations here:
+void reconnect(void);
+int setup_wifi(void);
 void led_toggling(uint16_t delay_ms);
 void led_blinking_shortly(uint8_t max_count, uint16_t delay_ms_on, uint16_t delay_ms_off);
-int setup_wifi(void);
-int setup_mqtt(void);
-void cb_message_rx(char *, uint8_t *, unsigned int);
-void reconnect(void);
-
-
-WiFiClient clientESP;
-PubSubClient client(clientESP);
-bool reseived_toggle = false;
+void callback(char* topic, byte* payload, unsigned int length);
 
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
 
-  /*pinMode(LED_BUILTIN, OUTPUT);
-  delay(200);
-  digitalWrite(LED_BUILTIN, HIGH);*/
+  delay(100);
+  Serial.println("\nINFO:\t\tStart ESP8266");
+  
+  setup_wifi(); 
 
-  setup_wifi();
-
+  client.setClient(espClient);
   client.setServer(IP_BROKER, PORT_BROKER);
-  client.setCallback(cb_message_rx);
+  client.setCallback(callback);
+  delay(300);
+  reconnect();
+  
+  delay(500);
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
+  client.loop();
   if (!client.connected()) {
+    Serial.println("ERROR:\t\tConnection lost!");
     reconnect();
   }
 
-  if (reseived_toggle) {
-    led_toggling(1000);
+  Serial.print(client.state());
+  if (boMsgReseived) {
+    Serial.println("Nachricht empfangen!!!!!");
+    parser->parseMQTTMessage(strPayload);
+    strPayload.clear();
+    boMsgReseived = false;
   }
-  //Serial.println("LoOp");
-}
-
-void cb_message_rx(char * topic, uint8_t *payload, unsigned int length) {
-  Serial.print((char*) payload);
-  client.publish(TOPIC_LOG, (char*) payload);
-  client.publish(TOPIC_LOG, "Emfangen");
-}
-
-void led_blinking_shortly(uint8_t max_count, uint16_t delay_ms_on, uint16_t delay_ms_off) {
-  for (int i = 0; i < max_count; i++) {
-    digitalWrite(LED_BUILTIN, LOW);
-    delay(delay_ms_on);
-    digitalWrite(LED_BUILTIN, HIGH);
-    delay(delay_ms_off);
-  }
-  digitalWrite(LED_BUILTIN, HIGH);
-}
-
-void led_toggling(uint16_t delay_ms){
-  static bool status = false;
-
-  digitalWrite(LED_BUILTIN, status);
-  status = !status;
-  delay(delay_ms);
+  delay(500);
 }
 
 void reconnect(void)
 {
   while(!client.connected()) {
-    // Create a random client ID
+    Serial.println("INFO:\t\tAttempting MQTT connection...");
+
     String clientId = "ESP8266Client-";
-    clientId += String(random(0xffff), HEX);
+    clientId += String(random(0xfffff), HEX);
 
     if (client.connect(clientId.c_str())) {
-      //led_blinking_shortly(5, 700, 300);
-      String msg;
-      msg = (clientId + " is connected!");
-      client.publish(TOPIC_LOG, msg.c_str());
-      //Serial.print("connected...");
-      client.subscribe(TOPIC_LED);
+      Serial.println("SUCCESS:\tConnected to Broker");
+
+      bool subOk = client.subscribe(TOPIC_LED, 1);
+      if (subOk) {
+        Serial.print("INFO:\t\tTopic ");
+        Serial.print(TOPIC_LED);
+        Serial.println(" subscribed!");
+        client.publish(TOPIC_LOG, "Connected");
+        client.publish(TOPIC_LED, "Hello from ESP8266");
+      }
+      else {
+        Serial.print("FAILED:\t\tTopic ");
+        Serial.print(TOPIC_LED);
+        Serial.println(" not subscribed!");
+      }
+      
     }
     else {
-      led_blinking_shortly(10, 300, 300);
+      Serial.print("FAILED:\t\trc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 Seconds");
       delay(5000);
     }
   }
 }
 
 int setup_wifi(void) {
-  Serial.begin(115200);
   delay(10);
-  Serial.println("\n");
-
+  Serial.print("\n");
+  Serial.println("INFO:\t\tConnect to Wifi...!");
+  
+  WiFi.mode(WIFI_STA);
   WiFi.begin(SSID, PASSWORD);
-  Serial.print("Connecting...");
-  Serial.print(SSID);
-  Serial.println("...");
 
-  int i = 0;
   while(WiFi.status() != WL_CONNECTED) {
-    delay(1000);
-    Serial.print(i++);
-    Serial.print(" ");
+    delay(500);
+    Serial.print(".");
   }
+  Serial.print("\n");
+  randomSeed(micros());
+
   digitalWrite(LED_BUILTIN, HIGH);
 
-  Serial.println("\n");
-  Serial.println("Connection etablished!");
-  Serial.print("IP address: ");
+  delay(600);
+  
+  Serial.println("SUCCESS:\tWifi connected!");
+  Serial.print("INFO:\t\tLocal IP: ");
   Serial.println(WiFi.localIP());
 
-  //led_blinking_shortly(5, 400, 400);
-
   return 0;
+}
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  strPayload.clear();
+  strPayload = (char*) payload;
+
+  client.publish(TOPIC_LOG, strPayload.c_str());
+
+  boMsgReseived = true;
 }
