@@ -8,10 +8,17 @@
 //#include "helper/Mqtt.h"
 #include "helper/Parser.h"
 #include <WString.h>
+#include "DHT.h"
+#include <iostream>
 
 #define TOPIC_LED (char*) "led"
 #define TOPIC_LOG (char*) "log"
+#define TOPIC_TEM_HUMID (char*) "temp_humid"
+#define DHT_TYPE DHT11
 
+const int DHT_PIN = 5;
+
+DHT dht(DHT_PIN, DHT_TYPE);
 WiFiClient espClient;
 PubSubClient client;
 bool reseived_toggle = false;
@@ -19,6 +26,11 @@ bool reseived_toggle = false;
 bool boMsgReseived = false;
 String strPayload;
 Parser *parser = new Parser();
+
+float temp;
+float humid;
+std::string msgTemp;
+std::string msgHumid;
 
 
 // put function declarations here:
@@ -44,6 +56,7 @@ void setup() {
   reconnect();
   
   delay(500);
+  dht.begin();
 }
 
 void loop() {
@@ -61,6 +74,17 @@ void loop() {
     strPayload.clear();
     boMsgReseived = false;
   }
+  humid = dht.readHumidity();
+  temp = dht.readTemperature();
+
+  msgTemp = "Temperature: " + std::to_string(temp);
+  msgHumid = "Humidity: " + std::to_string(humid);
+  Serial.print(msgTemp.c_str());
+  client.publish(TOPIC_TEM_HUMID, msgTemp.c_str());
+
+  Serial.print(msgHumid.c_str());
+  client.publish(TOPIC_TEM_HUMID, msgHumid.c_str());
+
   delay(500);
 }
 
